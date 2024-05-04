@@ -4,6 +4,82 @@
 library(quantstrat)
 library(urca)
 
+
+checkDistanceApp <- function(stockA, stockB){
+  formationPeriod <- 85
+  
+  #Fetch stock data
+  getSymbols(stockA, src="yahoo", from=as.Date("2021-01-01"))
+  A <- get(stockA)
+  getSymbols(stockB, src="yahoo", from=as.Date("2021-01-01"))
+  B <- get(stockB)
+  
+  closingPricesA <- na.omit(tail(Cl(A), 3*260))
+  closingPricesB <- na.omit(tail(Cl(B), 3*260))
+  
+  indexedPriceA <- closingPricesA[
+                   (length(closingPricesA) -
+                   formationPeriod + 1)
+                   ][[1]]
+  indexedPriceB <- closingPricesB[
+                   (length(closingPricesB) -
+                   formationPeriod + 1)
+                   ][[1]]
+  
+  normalizedPricesA <- closingPricesA / indexedPriceA
+  normalizedPricesB <- closingPricesB / indexedPriceB
+  normalizedDiff <- normalizedPricesA - normalizedPricesB
+  
+  # Check the following for both A and B:
+  # normalizedPricesA[length(closingPricesA) - formationPeriod + 1] == 1
+  
+  mean <- mean(normalizedDiff)
+  std <- sd(normalizedDiff)
+  
+  # Calculate z-score of latest normalized difference
+  zScore <- (tail(normalizedDiff, 1) - mean) / std
+  return(zScore)
+}
+
+
+checkCointegrationApp <- function(stockA, stockB){
+  #Fetch stock data
+  getSymbols(stockA, src="yahoo", from=as.Date("2021-01-01"))
+  A <- get(stockA)
+  getSymbols(stockB, src="yahoo", from=as.Date("2021-01-01"))
+  B <- get(stockB)
+  
+  closingPrices<-na.omit(tail(Cl(merge(A,B)), 3*260))
+  
+  # Co-integration equation
+  fit <- lm(log(closingPrices[,1])~log(closingPrices[,2]))
+  coeffs <- summary(fit)$coefficients
+  r_2 <- summary(fit)$r.squared
+  
+  # Co-integration Residual
+  spread <- residuals(fit)
+  
+  # Calculate z-scores
+  zScores <- (spread-mean(spread))/sd(spread)
+  
+  # Check for unit root
+  # Perform Augmented Dickey-Fuller test
+  testResults <- UR_Test_Res<-summary(ur.df(spread))
+  testCoeffs <- UR_Test_Res@testreg$coefficients
+  
+  testStats <- UR_Test_Res@teststat
+  criticalValues <- UR_Test_Res@cval
+  
+  return(zScores)
+}
+
+#z1 <- checkCointegrationApp("THY", "PGSUS.IS")
+#z2 <- checkDistanceApp("THY", "PGSUS.IS")
+
+#z3 <- checkCointegrationApp("AKBNK.IS", "GARAN.IS")
+#z4 <- checkDistanceApp("AKBNK.IS", "GARAN.IS")
+
+
 if (!exists('.blotter')) .blotter <- new.env()
 if (!exists('.strategy')) .strategy <- new.env() 
 ls(all=T) #.blotter and .strategy environments added

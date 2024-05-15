@@ -1,17 +1,125 @@
 ### PAIRS TRADING ###
 
 #Load libraries
+library(dplyr)
+library(Quandl)
+library(quantmod)
 library(quantstrat)
 library(urca)
+library(xts)
+library(zoo)
 
+# PAIRS IDENTIFICATION
+
+# Define stock symbols (BIST100 + KRDMA + KRDMB)
+BIST_100 <- c(
+  "AEFES.IS", "AGROT.IS", "AHGAZ.IS", "AKBNK.IS", "AKCNS.IS", "AKFGY.IS", "AKFYE.IS", "AKSA.IS", "AKSEN.IS", "ALARK.IS",
+  "ALBRK.IS", "ALFAS.IS", "ANSGR.IS", "ARCLK.IS", "ASELS.IS", "ASTOR.IS", "BERA.IS", "BFREN.IS", "BIENY.IS", "BIMAS.IS",
+  "BIOEN.IS", "BOBET.IS", "BRSAN.IS", "BRYAT.IS", "BTCIM.IS", "CANTE.IS", "CCOLA.IS", "CIMSA.IS", "CWENE.IS", "DOAS.IS",
+  "DOHOL.IS", "ECILC.IS", "ECZYT.IS", "EGEEN.IS", "EKGYO.IS", "ENERY.IS", "ENJSA.IS", "ENKAI.IS", "EREGL.IS", "EUPWR.IS",
+  "EUREN.IS", "FROTO.IS", "GARAN.IS", "GESAN.IS", "GUBRF.IS", "GWIND.IS", "HALKB.IS", "HEKTS.IS", "IPEKE.IS", "ISCTR.IS",
+  "ISGYO.IS", "ISMEN.IS", "IZENR.IS", "KAYSE.IS", "KCAER.IS", "KCHOL.IS", "KLSER.IS", "KONTR.IS", "KONYA.IS", "KOZAA.IS",
+  "KOZAL.IS", "KRDMD.IS", "MAVI.IS", "MGROS.IS", "MIATK.IS", "ODAS.IS", "OTKAR.IS", "OYAKC.IS", "PETKM.IS", "PGSUS.IS",
+  "QUAGR.IS", "REEDR.IS", "SAHOL.IS", "SASA.IS", "SAYAS.IS", "SDTTR.IS", "SISE.IS", "SKBNK.IS", "SMRTG.IS", "SOKM.IS",
+  "TABGD.IS", "TAVHL.IS", "TCELL.IS", "THYAO.IS", "TKFEN.IS", "TOASO.IS", "TSKB.IS", "TTKOM.IS", "TTRAK.IS", "TUKAS.IS",
+  "TUPRS.IS", "TURSG.IS", "ULKER.IS", "VAKBN.IS", "VESBE.IS", "VESTL.IS", "YEOTK.IS", "YKBNK.IS", "YYLGD.IS", "ZOREN.IS",
+  "KRDMA.IS", "KRDMB.IS"
+)
+
+# Retrieve OHLC price data of stocks
+stock_data <- list()
+for (symbol in BIST_100) {
+  stock_data[[symbol]] <- getSymbols(symbol, src = "yahoo", from = "1900-01-01")
+}
+
+# Fill NA values with LOCF
+for (symbol in BIST_100) {
+  assign(symbol, na.locf(get(symbol)))
+}
+
+# Get start dates
+start_dates <- c()
+for (symbol in BIST_100) {
+  start_date <- start(get(symbol))
+  start_dates <- c(start_dates, start_date)
+}
+
+min_start_date <- min(as.Date(start_dates)) # Find the earliest start date among all stocks
+
+# Find stocks with the earliest start dates
+stocks <- c()
+for (symbol in BIST_100) {
+  start_date <- start(get(symbol))
+  if(start_date <= min_start_date){
+    stocks <- c(stocks, symbol)
+  }
+}
+
+print(stocks)
+
+# Normalize the close prices of the first five years
+normalized_prices <- lapply(stocks, function(stock_name) {
+  stock <- get(stock_name)
+  stock <- stock[1:(5*260), ]
+  normalized_price <- stock[,4]/as.numeric(stock[1,4])
+  return(normalized_price)
+})
+
+# Calculate SSD values
+pair_data <- data.frame(Stock_1 = character(), Stock_2 = character(), SSD = numeric())
+for (i in 1:length(stocks)) {
+  for (j in 1:length(stocks)) {
+    if (i != j) {
+      ssd <- sum((normalized_prices[[i]] - normalized_prices[[j]])^2)
+      pair_data <- rbind(pair_data, data.frame(Stock_1 = stocks[i], Stock_2 = stocks[j], SSD = ssd))
+    }
+  }
+}
+
+# Find the lowest SSD pairs for each stock
+lowest_ssd_pairs <- pair_data %>%
+  group_by(Stock_1) %>%
+  slice(which.min(SSD))
+
+# Get all stock combinations
+combinations <- combn(stocks, 2)
+pairs <- split(combinations, col(combinations))
+
+# Define a function for cointegration test
+test_cointegration <- function(stock1, stock2) {
+  stock1 <- get(stock1)
+  stock2 <- get(stock2)
+  log_prices1 <- log(stock1[,4])
+  log_prices2 <- log(stock2[,4])
+  
+  regression <- lm(log_prices1 ~ log_prices2)
+  residuals <- regression$residuals
+  adf_test <- adf.test(residuals)
+  p_value <- adf_test$p.value
+  
+  return(p_value)
+}
+
+# Perform cointegration test for each combination 
+results <- lapply(pairs, function(pair) {
+  stock1 <- pair[1]
+  stock2 <- pair[2]
+  p_value <- test_cointegration(stock1, stock2)
+  data.frame(stock1 = stock1, stock2 = stock2, p_value = p_value)
+})
+
+# Filter significant pairs (p-value is lower than or equal to 0.05)
+significant_pairs <- Filter(function(x) x$p_value <= 0.05, results)
+
+# DIVERGENCE DETECTION
 
 checkDistanceApp <- function(stockA, stockB){
   formationPeriod <- 85
   
   #Fetch stock data
-  getSymbols(stockA, src="yahoo", from=as.Date("2021-01-01"))
+  getSymbols(stockA, src="yahoo", from=as.Date("1900-01-01"))
   A <- get(stockA)
-  getSymbols(stockB, src="yahoo", from=as.Date("2021-01-01"))
+  getSymbols(stockB, src="yahoo", from=as.Date("1900-01-01"))
   B <- get(stockB)
   
   closingPricesA <- na.omit(tail(Cl(A), 3*260))

@@ -114,7 +114,7 @@ significant_pairs <- Filter(function(x) x$p_value <= 0.05, results)
 # DIVERGENCE DETECTION
 
 checkDistanceApp <- function(stockA, stockB){
-  formationPeriod <- 85
+  formationPeriod <- 85 # TODO: optimize this parameter
   
   #Fetch stock data
   getSymbols(stockA, src="yahoo", from=as.Date("1900-01-01"))
@@ -146,7 +146,7 @@ checkDistanceApp <- function(stockA, stockB){
   
   # Calculate z-score of latest normalized difference
   zScore <- (tail(normalizedDiff, 1) - mean) / std
-  return(zScore)
+  return(zScore) # TODO: optimize this parameter
 }
 
 
@@ -178,7 +178,7 @@ checkCointegrationApp <- function(stockA, stockB){
   testStats <- UR_Test_Res@teststat
   criticalValues <- UR_Test_Res@cval
   
-  return(zScores)
+  return(zScores) # TODO: optimize this parameter
 }
 
 #z1 <- checkCointegrationApp("THY", "PGSUS.IS")
